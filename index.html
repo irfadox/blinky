@@ -1,471 +1,1328 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Blinky</title>
-  <style>
-    :root {
-      color-scheme: dark;
-    }
-
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      max-width: 640px;
-      margin: 16px auto;
-      padding: 0 12px;
-      background: black;
-      color: white;
-      line-height: 1.4;
-    }
-
-    h1 {
-      font-size: 1.1rem;
-      margin: 0 0 10px;
-    }
-
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px 14px;
-      align-items: center;
-      margin-bottom: 10px;
-      font-size: 0.9rem;
-    }
-
-    select {
-      background: black;
-      color: white;
-      border: 1px solid gray;
-      padding: 2px 4px;
-    }
-
-    canvas {
-      display: block;
-      width: 100%;
-      height: auto;
-      border: 1px solid gray;
-      background: black;
-      margin-bottom: 10px;
-    }
-
-    #specCanvas {
-      background: black;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.88rem;
-      margin-bottom: 10px;
-    }
-
-    th,
-    td {
-      border: 1px solid dimgray;
-      padding: 6px 8px;
-      text-align: left;
-    }
-
-    th {
-      background: #1a1a1a;
-      width: 34%;
-    }
-
-    a {
-      color: lightgray;
-    }
-
-    .muted {
-      color: darkgray;
-      font-size: 0.82rem;
-    }
-
-    .hidden {
-      display: none;
-    }
-  </style>
-</head>
-
-<body>
-
-  <h1>Blinky: Compare the night sky over time (NASA SPHEREx, ESA Gaia, CSA NEOSSat)</h1>
-
-  <div class="controls">
-    <label>Target:
-      <select id="targetSel">
-        <optgroup label="NASA SPHEREx (Near-IR 0.75–5.0 um)">
-          <option value="wise0855">WISE 0855 (Cold Brown Dwarf / Dropout)</option>
-          <option value="barnards">Barnard's Star (High Proper Motion)</option>
-          <option value="eps_indi_b">Epsilon Indi B (Binary Brown Dwarf)</option>
-          <option value="rw_aurigae">RW Aurigae (Dimming Variable)</option>
-          <option value="r_draconis">R Draconis (Mira Variable)</option>
-        </optgroup>
-        <optgroup label="CSA NEOSSat (Optical Microsatellite)">
-          <option value="neossat_mover">NEOSSat Solar System Mover</option>
-          <option value="neossat_field">NEOSSat Variable and LEO Streak Field</option>
-        </optgroup>
-      </select>
-    </label>
-
-    <span>View:
-      <label><input type="radio" name="mode" value="A"> Epoch A</label>
-      <label><input type="radio" name="mode" value="B"> Epoch B</label>
-      <label><input type="radio" name="mode" value="blink" checked> Blink</label>
-      <label><input type="radio" name="mode" value="diff"> Diff (B&minus;A)</label>
-    </span>
-
-    <label id="bandWrap">Detector:
-      <select id="bandSel">
-        <option value="coadd">All 6 Arrays (Coadded)</option>
-        <option value="D1">Array 1 (0.75–1.11 &mu;m)</option>
-        <option value="D2">Array 2 (1.11–1.64 &mu;m)</option>
-        <option value="D3">Array 3 (1.64–2.42 &mu;m)</option>
-        <option value="D4">Array 4 (2.42–3.82 &mu;m)</option>
-        <option value="D5">Array 5 (3.82–4.42 &mu;m)</option>
-        <option value="D6">Array 6 (4.42–5.00 &mu;m)</option>
-      </select>
-    </label>
-
-    <label><input type="checkbox" id="gaiaToggle"> Gaia DR3 overlay</label>
-  </div>
-
-  <canvas id="skyCanvas" width="256" height="256"></canvas>
-
-  <table>
-    <tr>
-      <th>Object</th>
-      <td id="infoId">&mdash;</td>
-    </tr>
-    <tr>
-      <th>Catalog match</th>
-      <td id="infoStatus">&mdash;</td>
-    </tr>
-    <tr>
-      <th>What to look for</th>
-      <td id="infoGuide">&mdash;</td>
-    </tr>
-    <tr>
-      <th>Flux &Delta; / Flags</th>
-      <td id="infoDelta">&mdash;</td>
-    </tr>
-    <tr>
-      <th>Archives</th>
-      <td id="infoLinks">&mdash;</td>
-    </tr>
-  </table>
-
-  <div id="specSection">
-    <div class="muted">Spectrum (0.75–5.00 &mu;m): Epoch A (dashed blue) vs. Epoch B (solid red)</div>
-    <canvas id="specCanvas" width="600" height="175"></canvas>
-  </div>
-  <div class="muted" id="dataSourceNote">Loading...</div>
-
-  <script>
-    const PRESETS = {
-      wise0855: { mission: "SPHEREx", name: "WISE 0855", ra: 133.79513, dec: -7.24515, epA: "2025-05", epB: "2025-11", status: "No Gaia DR3 match (optical dropout, 4.1\" proper motion)", guide: "Enable Gaia DR3 overlay: field stars have green circles, while the center box has none—confirming a 250 K optical dropout peaking in thermal bands D5–D6.", delta: "-0.2% (Flags: 0x00)", dx: 11, dy: -6, fA: 1.0, fB: 1.0, ir: true, temp: 260, cadc: 2 },
-      barnards: { mission: "SPHEREx", name: "Barnard's Star", ra: 269.45208, dec: 4.69336, epA: "2025-04", epB: "2025-10", status: "Gaia DR3 match (5.1\" proper motion)", guide: "Total brightness stays flat (+0.3%), while Diff (B−A) and Gaia vectors highlight fast proper motion across a crowded background star field.", delta: "+0.4% (Flags: 0x00)", dx: -4, dy: 13, fA: 1.4, fB: 1.4, ir: true, temp: 3100, cadc: 5 },
-      eps_indi_b: { mission: "SPHEREx", name: "Epsilon Indi B", ra: 331.07625, dec: -56.78250, epA: "2025-05", epB: "2025-11", status: "Gaia DR3 match (binary brown dwarf)", guide: "Clean nominal flags (0x00) across 10 months; the spectrum shows deep methane (CH4) and water absorption bands between 1.0 and 2.5 μm.", delta: "-1.1% (Flags: 0x00)", dx: 5, dy: 4, fA: 1.1, fB: 1.09, ir: true, temp: 1100, cadc: 1 },
-      rw_aurigae: { mission: "SPHEREx", name: "RW Aurigae", ra: 76.95654, dec: 30.40144, epA: "2025-03", epB: "2025-09", status: "Gaia DR3 match (variable star)", guide: "Notice the spectral crossover: shorter starlight dims (blue above red) while warm circumstellar dust brightens past 3.0 μm (red above blue).", delta: "-45.2% (Flags: 0x02)", dx: 0, dy: 0, fA: 1.5, fB: 0.82, ir: true, temp: 4200, cadc: 4 },
-      r_draconis: { mission: "SPHEREx", name: "R Draconis", ra: 248.16500, dec: 66.75528, epA: "2025-04", epB: "2025-10", status: "Gaia DR3 match (Mira variable)", guide: "Pulsating Mira variable brightening by +64.1% in Epoch B; its overloaded center pixels are masked by quality flags (0x06), leaving a red outer halo.", delta: "+68.4% (Flags: 0x00)", dx: 0, dy: 0, fA: 0.9, fB: 1.52, ir: true, temp: 2800, cadc: 3 },
-      neossat_mover: { mission: "NEOSSat", name: "NEOSSat Solar System Mover", ra: 185.4200, dec: -2.1500, epA: "T+00m", epB: "T+18m", status: "No Gaia DR3 match (Solar System mover)", guide: "Use Blink or Diff (B−A) to spot the fast-moving Solar System body jumping across stationary Gaia reference stars over an 18-minute cadence.", delta: "+2.1% (Flags: 0x00)", dx: 18, dy: -11, fA: 1.1, fB: 1.12, ir: false, temp: 5500, cadc: 14 },
-      neossat_field: { mission: "NEOSSat", name: "NEOSSat Variable and Streak Field", ra: 210.8000, dec: 14.3000, epA: "T+00m", epB: "T+24m", status: "Gaia DR3 match (variable star and satellite streak)", guide: "In Diff (B−A), a Low Earth Orbit (LEO) satellite leaves an orange diagonal streak across the frame while the centered variable star brightens.", delta: "+34.0% (Flags: 0x00)", dx: 0, dy: 0, fA: 0.8, fB: 1.08, ir: false, temp: 5500, cadc: 9, streak: true }
-    };
-
-    let currentData = null;
-    let blinkFrame = 0;
-    const offCanvas = document.createElement("canvas");
-    const offCtx = offCanvas.getContext("2d");
-
-    function makeFallbackData(id) {
-      const p = PRESETS[id];
-      const N = 128;
-      let seed = id.split("").reduce((a, c) => a + c.charCodeAt(0), 23);
-      const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-      const stars = Array.from({ length: 22 }, () => [12 + rand() * 104, 12 + rand() * 104, 0.3 + rand() * 0.7]);
-      const gaia_stars = stars.filter((_, i) => i % 4 !== 0).map(s => ({
-        x: +s[0].toFixed(1), y: +s[1].toFixed(1),
-        pm_dx: +((rand() - 0.5) * 3).toFixed(2), pm_dy: +((rand() - 0.5) * 3).toFixed(2)
-      }));
-      if (id !== "wise0855" && id !== "neossat_mover") {
-        gaia_stars.push({ x: +(64 - p.dx * 0.5).toFixed(1), y: +(64 - p.dy * 0.5).toFixed(1), pm_dx: p.dx, pm_dy: p.dy });
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blinky: compare the night sky over time</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #000;
+        --glass: rgba(18, 18, 18, 0.72);
+        --line: rgba(255, 255, 255, 0.14);
+        --acc: #f2f2f2;
+        --warm: #ff8a4c;
+        --tx: #f2f2f2;
+        --mu: #9a9a9a;
+        font-family:
+          Inter,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
       }
+      html {
+        font-size: clamp(14px, 1.05vw, 20px);
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--tx);
+      }
+      a {
+        color: var(--acc);
+      }
+      .hidden {
+        display: none !important;
+      }
+      #stars {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+        box-sizing: border-box;
+        padding: 5.5rem 1rem 12.5rem;
+        display: grid;
+        place-items: center;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+        background: transparent;
+      }
+      #stage.drag {
+        cursor: grabbing;
+      }
+      #pan {
+        transform-origin: 50% 50%;
+        will-change: transform;
+        position: relative;
+      }
+      #skyCanvas {
+        display: block;
+        height: min(calc(100vh - 18rem), 66vw);
+        width: auto;
+        aspect-ratio: 1;
+        border-radius: 4px;
+        box-shadow: 0 0 0 1px var(--line);
+        background: #000;
+      }
+      #vignette {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: none;
+      }
+      .hud {
+        position: fixed;
+        z-index: 5;
+      }
+      .glass {
+        background: var(--glass);
+        backdrop-filter: blur(14px) saturate(140%);
+        -webkit-backdrop-filter: blur(14px) saturate(140%);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+      }
+      .title {
+        top: 1.4rem;
+        left: 1.8rem;
+        max-width: 30vw;
+        pointer-events: none;
+      }
+      .title .brand {
+        font-size: 0.8rem;
+        color: var(--acc);
+        letter-spacing: 0.08em;
+      }
+      .title h1 {
+        margin: 0.2rem 0 0.1rem;
+        font-size: 2.3rem;
+        font-weight: 300;
+      }
+      .title .sub {
+        font-size: 0.85rem;
+        color: var(--mu);
+      }
+      #caption {
+        left: 50%;
+        transform: translateX(-50%);
+        top: 1.2rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+        max-width: 34vw;
+        text-align: center;
+        transition: opacity 0.4s;
+      }
+      #info {
+        top: 1.4rem;
+        right: 1.4rem;
+        width: 23rem;
+        max-height: calc(100vh - 14rem);
+        overflow: auto;
+        padding: 1.1rem 1.3rem;
+        font-size: 0.88rem;
+        line-height: 1.5;
+        transition:
+          transform 0.35s,
+          opacity 0.35s;
+      }
+      #info.off {
+        transform: translateX(115%);
+        opacity: 0;
+        pointer-events: none;
+      }
+      #info dl {
+        margin: 0;
+      }
+      #info dt {
+        font-size: 0.75rem;
+        color: var(--mu);
+        margin-top: 0.85rem;
+      }
+      #info dd {
+        margin: 0.1rem 0 0;
+      }
+      #info dt:first-child {
+        margin-top: 0;
+      }
+      #infoDelta {
+        font-weight: 600;
+        color: var(--warm);
+      }
+      #dataSourceNote {
+        margin-top: 0.9rem;
+        padding-top: 0.7rem;
+        border-top: 1px solid var(--line);
+        font-size: 0.72rem;
+        color: var(--mu);
+      }
+      #specSection {
+        left: 1.4rem;
+        bottom: 10.5rem;
+        width: 27rem;
+        padding: 0.8rem 1rem;
+        transition:
+          transform 0.35s,
+          opacity 0.35s;
+      }
+      #specSection.off {
+        transform: translateY(130%);
+        opacity: 0;
+        pointer-events: none;
+      }
+      #specSection .muted {
+        font-size: 0.75rem;
+        color: var(--mu);
+        margin-bottom: 0.4rem;
+      }
+      #specCanvas {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      #epochTag {
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 10.7rem;
+        padding: 0.35rem 0.9rem;
+        font-size: 0.82rem;
+        display: flex;
+        gap: 0.55rem;
+        align-items: center;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #epochTag i {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        background: var(--acc);
+      }
+      #coords {
+        right: 1.6rem;
+        bottom: 0.6rem;
+        font-size: 0.75rem;
+        color: var(--mu);
+      }
+      #hint {
+        left: 1.8rem;
+        bottom: 0.6rem;
+        font-size: 0.75rem;
+        color: var(--mu);
+      }
+      .dock {
+        left: 0;
+        right: 0;
+        bottom: 1.9rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.7rem;
+        pointer-events: none;
+      }
+      .dock > * {
+        pointer-events: auto;
+      }
+      .rail {
+        display: flex;
+        gap: 0.5rem;
+        overflow-x: auto;
+        max-width: 94vw;
+        padding: 0.2rem 0.5rem;
+      }
+      .card {
+        padding: 0.55rem 1rem;
+        font-size: 0.82rem;
+        color: var(--mu);
+        cursor: pointer;
+        white-space: nowrap;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        font-family: inherit;
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+      }
+      .card i {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--acc);
+      }
+      .card.neo i {
+        background: var(--warm);
+      }
+      .card:hover {
+        color: var(--tx);
+        border-color: var(--acc);
+      }
+      .card.active {
+        color: var(--tx);
+        border-color: var(--acc);
+      }
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 0.4rem 0.9rem;
+        padding: 0.5rem 0.8rem;
+        font-size: 0.85rem;
+        max-width: 96vw;
+        box-sizing: border-box;
+      }
+      .seg {
+        display: flex;
+        gap: 0.15rem;
+      }
+      .seg label {
+        position: relative;
+        padding: 0.5rem 0.9rem;
+        border-radius: 9px;
+        color: var(--mu);
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .seg label:hover {
+        color: var(--tx);
+      }
+      .seg input {
+        position: absolute;
+        opacity: 0;
+        inset: 0;
+        cursor: pointer;
+      }
+      .seg label:has(input:checked) {
+        background: rgba(255, 255, 255, 0.14);
+        color: var(--acc);
+      }
+      .seg label:has(input:focus-visible),
+      .btn:focus-visible,
+      .card:focus-visible {
+        outline: 2px solid var(--acc);
+      }
+      .bar label.opt {
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+        color: var(--mu);
+      }
+      select {
+        background: #000;
+        color: var(--tx);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.35rem 0.5rem;
+        font: inherit;
+      }
+      #targetSel {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+        width: 1px;
+        height: 1px;
+      }
+      input[type="range"] {
+        accent-color: var(--acc);
+        width: 6rem;
+      }
+      input[type="checkbox"] {
+        accent-color: var(--acc);
+      }
+      .btn {
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--mu);
+        border-radius: 9px;
+        padding: 0.45rem 0.9rem;
+        font: inherit;
+        cursor: pointer;
+      }
+      .btn:hover,
+      .btn.on {
+        color: var(--acc);
+        border-color: var(--acc);
+      }
+      @media (max-width: 800px) {
+        html {
+          font-size: 14px;
+        }
+        #stage {
+          padding: 5rem 0.5rem 14rem;
+        }
+        #skyCanvas {
+          height: auto;
+          width: 94vw;
+        }
+        .title {
+          max-width: 70vw;
+        }
+        .title h1 {
+          font-size: 1.5rem;
+        }
+        #caption {
+          display: none;
+        }
+        #info {
+          top: auto;
+          bottom: 11rem;
+          left: 0.6rem;
+          right: 0.6rem;
+          width: auto;
+          max-height: 28vh;
+        }
+        #info.off {
+          transform: translateY(120%);
+        }
+        #specSection {
+          left: 0.6rem;
+          right: 0.6rem;
+          width: auto;
+          bottom: 11rem;
+        }
+        #coords,
+        #hint {
+          display: none;
+        }
+        #epochTag {
+          bottom: 11rem;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stars"></canvas>
+    <div id="stage">
+      <div id="pan">
+        <canvas id="skyCanvas" width="768" height="768"></canvas>
+      </div>
+    </div>
+    <div id="vignette"></div>
 
-      const buildGrid = (ox, oy, amp, noise, addStreak) => {
-        const g = Array.from({ length: N }, () => new Float32Array(N));
-        for (let y = 0; y < N; y++) {
-          for (let x = 0; x < N; x++) {
-            let v = 0.03 + (rand() - 0.5) * noise;
-            for (const [sx, sy, sb] of stars) {
-              const d2 = (x - sx) ** 2 + (y - sy) ** 2;
-              if (d2 < 36) v += sb * Math.exp(-d2 / 3.2);
+    <header class="hud title">
+      <div class="brand">Blinky</div>
+      <h1 id="hudName">Loading…</h1>
+      <div class="sub" id="hudSub">Compare the night sky over time</div>
+    </header>
+    <div class="hud glass hidden" id="caption"></div>
+
+    <aside class="hud glass" id="info">
+      <dl>
+        <dt>Object</dt>
+        <dd id="infoId">&mdash;</dd>
+        <dt>Catalog match</dt>
+        <dd id="infoStatus">&mdash;</dd>
+        <dt>What to look for</dt>
+        <dd id="infoGuide">&mdash;</dd>
+        <dt>Flux &Delta; / flags</dt>
+        <dd id="infoDelta">&mdash;</dd>
+        <dt>Archives</dt>
+        <dd id="infoLinks">&mdash;</dd>
+      </dl>
+      <div id="dataSourceNote">Loading…</div>
+    </aside>
+
+    <section class="hud glass off" id="specSection">
+      <div class="muted">
+        Spectrum 0.75–5.00 &mu;m: Epoch A (dashed blue) vs. Epoch B (solid red)
+      </div>
+      <canvas id="specCanvas" width="600" height="175"></canvas>
+    </section>
+
+    <div class="hud glass" id="epochTag"></div>
+    <div class="hud" id="hint">
+      Scroll to zoom · drag to pan · double-click to reset · Space to blink
+    </div>
+    <div class="hud" id="coords">Zoom 1.0×</div>
+
+    <nav class="hud dock">
+      <div class="rail" id="rail"></div>
+      <div class="bar glass">
+        <select id="targetSel" aria-label="Target">
+          <optgroup label="NASA SPHEREx">
+            <option value="wise0855">WISE 0855</option>
+            <option value="barnards">Barnard's Star</option>
+            <option value="eps_indi_b">Epsilon Indi B</option>
+            <option value="rw_aurigae">RW Aurigae</option>
+            <option value="r_draconis">R Draconis</option>
+          </optgroup>
+          <optgroup label="CSA NEOSSat">
+            <option value="neossat_mover">NEOSSat Solar System Mover</option>
+            <option value="neossat_field">
+              NEOSSat Variable and Streak Field
+            </option>
+          </optgroup>
+        </select>
+        <div class="seg" role="radiogroup" aria-label="View">
+          <label><input type="radio" name="mode" value="A" />Epoch A</label>
+          <label><input type="radio" name="mode" value="B" />Epoch B</label>
+          <label
+            ><input
+              type="radio"
+              name="mode"
+              value="blink"
+              checked
+            />Blink</label
+          >
+          <label
+            ><input type="radio" name="mode" value="diff" />Diff
+            (B&minus;A)</label
+          >
+          <label><input type="radio" name="mode" value="wipe" />Wipe</label>
+        </div>
+        <label class="opt hidden" id="wipeWrap"
+          >Split
+          <input type="range" id="wipeSlider" min="0" max="100" value="50"
+        /></label>
+        <label class="opt" id="speedWrap"
+          >Speed
+          <input type="range" id="speed" min="150" max="1500" value="1000"
+        /></label>
+        <label class="opt" id="bandWrap"
+          >Detector
+          <select id="bandSel">
+            <option value="coadd">All 6 arrays</option>
+            <option value="D1">Array 1 (0.75–1.11 &mu;m)</option>
+            <option value="D2">Array 2 (1.11–1.64 &mu;m)</option>
+            <option value="D3">Array 3 (1.64–2.42 &mu;m)</option>
+            <option value="D4">Array 4 (2.42–3.82 &mu;m)</option>
+            <option value="D5">Array 5 (3.82–4.42 &mu;m)</option>
+            <option value="D6">Array 6 (4.42–5.00 &mu;m)</option>
+          </select>
+        </label>
+        <label class="opt"
+          ><input type="checkbox" id="gaiaToggle" /> Gaia DR3 overlay</label
+        >
+        <button class="btn" id="specBtn">Spectrum</button>
+        <button class="btn on" id="infoBtn">Info</button>
+        <button class="btn" id="tourBtn">Tour</button>
+        <button class="btn" id="resetBtn">Reset view</button>
+      </div>
+    </nav>
+
+    <script>
+      const PRESETS = {
+        wise0855: {
+          mission: "SPHEREx",
+          name: "WISE 0855",
+          ra: 133.79513,
+          dec: -7.24515,
+          epA: "2025-05",
+          epB: "2025-11",
+          status: 'No Gaia DR3 match (optical dropout, 4.1" proper motion)',
+          guide:
+            "Enable Gaia DR3 overlay: field stars have green circles, while the center box has none—confirming a 250 K optical dropout peaking in thermal bands D5–D6.",
+          delta: "-0.2% (Flags: 0x00)",
+          dx: 11,
+          dy: -6,
+          fA: 1.0,
+          fB: 1.0,
+          ir: true,
+          temp: 260,
+          cadc: 2,
+        },
+        barnards: {
+          mission: "SPHEREx",
+          name: "Barnard's Star",
+          ra: 269.45208,
+          dec: 4.69336,
+          epA: "2025-04",
+          epB: "2025-10",
+          status: 'Gaia DR3 match (5.1" proper motion)',
+          guide:
+            "Total brightness stays flat (+0.3%), while Diff (B−A) and Gaia vectors highlight fast proper motion across a crowded background star field.",
+          delta: "+0.4% (Flags: 0x00)",
+          dx: -4,
+          dy: 13,
+          fA: 1.4,
+          fB: 1.4,
+          ir: true,
+          temp: 3100,
+          cadc: 5,
+        },
+        eps_indi_b: {
+          mission: "SPHEREx",
+          name: "Epsilon Indi B",
+          ra: 331.07625,
+          dec: -56.7825,
+          epA: "2025-05",
+          epB: "2025-11",
+          status: "Gaia DR3 match (binary brown dwarf)",
+          guide:
+            "Clean nominal flags (0x00) across 10 months; the spectrum shows deep methane (CH4) and water absorption bands between 1.0 and 2.5 μm.",
+          delta: "-1.1% (Flags: 0x00)",
+          dx: 5,
+          dy: 4,
+          fA: 1.1,
+          fB: 1.09,
+          ir: true,
+          temp: 1100,
+          cadc: 1,
+        },
+        rw_aurigae: {
+          mission: "SPHEREx",
+          name: "RW Aurigae",
+          ra: 76.95654,
+          dec: 30.40144,
+          epA: "2025-03",
+          epB: "2025-09",
+          status: "Gaia DR3 match (variable star)",
+          guide:
+            "Notice the spectral crossover: shorter starlight dims (blue above red) while warm circumstellar dust brightens past 3.0 μm (red above blue).",
+          delta: "-45.2% (Flags: 0x02)",
+          dx: 0,
+          dy: 0,
+          fA: 1.5,
+          fB: 0.82,
+          ir: true,
+          temp: 4200,
+          cadc: 4,
+        },
+        r_draconis: {
+          mission: "SPHEREx",
+          name: "R Draconis",
+          ra: 248.165,
+          dec: 66.75528,
+          epA: "2025-04",
+          epB: "2025-10",
+          status: "Gaia DR3 match (Mira variable)",
+          guide:
+            "Pulsating Mira variable brightening by +64.1% in Epoch B; its overloaded center pixels are masked by quality flags (0x06), leaving a red outer halo.",
+          delta: "+68.4% (Flags: 0x00)",
+          dx: 0,
+          dy: 0,
+          fA: 0.9,
+          fB: 1.52,
+          ir: true,
+          temp: 2800,
+          cadc: 3,
+        },
+        neossat_mover: {
+          mission: "NEOSSat",
+          name: "NEOSSat Solar System Mover",
+          ra: 185.42,
+          dec: -2.15,
+          epA: "T+00m",
+          epB: "T+18m",
+          status: "No Gaia DR3 match (Solar System mover)",
+          guide:
+            "Use Blink or Diff (B−A) to spot the fast-moving Solar System body jumping across stationary Gaia reference stars over an 18-minute cadence.",
+          delta: "+2.1% (Flags: 0x00)",
+          dx: 18,
+          dy: -11,
+          fA: 1.1,
+          fB: 1.12,
+          ir: false,
+          temp: 5500,
+          cadc: 14,
+        },
+        neossat_field: {
+          mission: "NEOSSat",
+          name: "NEOSSat Variable and Streak Field",
+          ra: 210.8,
+          dec: 14.3,
+          epA: "T+00m",
+          epB: "T+24m",
+          status: "Gaia DR3 match (variable star and satellite streak)",
+          guide:
+            "In Diff (B−A), a Low Earth Orbit (LEO) satellite leaves an orange diagonal streak across the frame while the centered variable star brightens.",
+          delta: "+34.0% (Flags: 0x00)",
+          dx: 0,
+          dy: 0,
+          fA: 0.8,
+          fB: 1.08,
+          ir: false,
+          temp: 5500,
+          cadc: 9,
+          streak: true,
+        },
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const getMode = () =>
+        document.querySelector('input[name="mode"]:checked').value;
+      let currentData = null,
+        blinkFrame = 0;
+      const offCanvas = document.createElement("canvas");
+      const offCtx = offCanvas.getContext("2d");
+
+      /* ---------- fallback simulated data ---------- */
+      function makeFallbackData(id) {
+        const p = PRESETS[id],
+          N = 128;
+        let seed = id.split("").reduce((a, c) => a + c.charCodeAt(0), 23);
+        const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        const stars = Array.from({ length: 22 }, () => [
+          12 + rand() * 104,
+          12 + rand() * 104,
+          0.3 + rand() * 0.7,
+        ]);
+        const gaia_stars = stars
+          .filter((_, i) => i % 4 !== 0)
+          .map((s) => ({
+            x: +s[0].toFixed(1),
+            y: +s[1].toFixed(1),
+            pm_dx: +((rand() - 0.5) * 3).toFixed(2),
+            pm_dy: +((rand() - 0.5) * 3).toFixed(2),
+          }));
+        if (id !== "wise0855" && id !== "neossat_mover")
+          gaia_stars.push({
+            x: +(64 - p.dx * 0.5).toFixed(1),
+            y: +(64 - p.dy * 0.5).toFixed(1),
+            pm_dx: p.dx,
+            pm_dy: p.dy,
+          });
+        const buildGrid = (ox, oy, amp, noise, addStreak) => {
+          const g = Array.from({ length: N }, () => new Float32Array(N));
+          for (let y = 0; y < N; y++)
+            for (let x = 0; x < N; x++) {
+              let v = 0.03 + (rand() - 0.5) * noise;
+              for (const [sx, sy, sb] of stars) {
+                const d2 = (x - sx) ** 2 + (y - sy) ** 2;
+                if (d2 < 36) v += sb * Math.exp(-d2 / 3.2);
+              }
+              const td2 = (x - (64 + ox)) ** 2 + (y - (64 + oy)) ** 2;
+              if (td2 < 64) v += amp * Math.exp(-td2 / 3.6);
+              if (
+                addStreak &&
+                Math.abs(y - 20 - 0.65 * (x - 10)) < 1.1 &&
+                x > 15 &&
+                x < 115
+              )
+                v += 0.65;
+              g[y][x] = Math.max(0, v);
             }
-            const td2 = (x - (64 + ox)) ** 2 + (y - (64 + oy)) ** 2;
-            if (td2 < 64) v += amp * Math.exp(-td2 / 3.6);
-            if (addStreak && Math.abs((y - 20) - 0.65 * (x - 10)) < 1.1 && x > 15 && x < 115) v += 0.65;
-            g[y][x] = Math.max(0, v);
+          return g;
+        };
+        const oxA = -p.dx * 0.5,
+          oyA = -p.dy * 0.5,
+          oxB = p.dx * 0.5,
+          oyB = p.dy * 0.5;
+        let arrays = null,
+          spectrum = null;
+        if (p.ir) {
+          arrays = {};
+          for (let d = 1; d <= 6; d++) {
+            const w = p.temp < 500 ? (d >= 5 ? 1.5 : 0.15) : d <= 3 ? 1.2 : 0.6;
+            arrays["D" + d] = {
+              A: buildGrid(oxA, oyA, p.fA * w, 0.035, false),
+              B: buildGrid(oxB, oyB, p.fB * w, 0.035, false),
+            };
           }
+          const wave_um = Array.from(
+            { length: 102 },
+            (_, i) => +(0.75 + (4.25 * i) / 101).toFixed(3),
+          );
+          const fluxA = wave_um.map((w) => {
+            let base =
+              p.temp < 500
+                ? Math.exp((w - 3.6) * 1.15) * 0.6
+                : (2.2 / (w + 0.4)) * p.fA;
+            if (
+              id === "eps_indi_b" &&
+              (Math.abs(w - 1.65) < 0.15 || Math.abs(w - 3.3) < 0.2)
+            )
+              base *= 0.45;
+            if (id === "r_draconis" && Math.abs(w - 2.7) < 0.2) base *= 0.65;
+            return +Math.max(0.03, base).toFixed(3);
+          });
+          const fluxB = fluxA.map(
+            (v, i) =>
+              +(
+                v *
+                (p.fB / p.fA) *
+                (id === "rw_aurigae" && wave_um[i] > 3.2 ? 1.35 : 1.0)
+              ).toFixed(3),
+          );
+          spectrum = { wave_um, fluxA, fluxB };
         }
-        return g;
-      };
-
-      const oxA = -p.dx * 0.5, oyA = -p.dy * 0.5;
-      const oxB = p.dx * 0.5, oyB = p.dy * 0.5;
-
-      let arrays = null, spectrum = null;
-      if (p.ir) {
-        arrays = {};
-        for (let d = 1; d <= 6; d++) {
-          const w = p.temp < 500 ? (d >= 5 ? 1.5 : 0.15) : (d <= 3 ? 1.2 : 0.6);
-          arrays["D" + d] = { A: buildGrid(oxA, oyA, p.fA * w, 0.035, false), B: buildGrid(oxB, oyB, p.fB * w, 0.035, false) };
-        }
-        const wave_um = Array.from({ length: 102 }, (_, i) => +(0.75 + (4.25 * i) / 101).toFixed(3));
-        const fluxA = wave_um.map(w => {
-          let base = p.temp < 500 ? Math.exp((w - 3.6) * 1.15) * 0.6 : (2.2 / (w + 0.4)) * p.fA;
-          if (id === "eps_indi_b" && (Math.abs(w - 1.65) < 0.15 || Math.abs(w - 3.3) < 0.2)) base *= 0.45;
-          if (id === "r_draconis" && Math.abs(w - 2.7) < 0.2) base *= 0.65;
-          return +Math.max(0.03, base).toFixed(3);
-        });
-        const fluxB = fluxA.map((v, i) => +(v * (p.fB / p.fA) * (id === "rw_aurigae" && wave_um[i] > 3.2 ? 1.35 : 1.0)).toFixed(3));
-        spectrum = { wave_um, fluxA, fluxB };
+        return {
+          id,
+          mission: p.mission,
+          name: p.name,
+          ra: p.ra,
+          dec: p.dec,
+          size: N,
+          epochA_date: p.epA,
+          epochB_date: p.epB,
+          status: p.status,
+          guide: p.guide,
+          delta_str: p.delta,
+          coaddA: buildGrid(oxA, oyA, p.fA, 0.012, false),
+          coaddB: buildGrid(oxB, oyB, p.fB, 0.012, !!p.streak),
+          arrays,
+          spectrum,
+          gaia_stars,
+          cadc_optical_count: p.cadc,
+          source: `Simulated optical sequence (CSA ${p.mission} cadence model, ${N}x${N} px)`,
+          wiseview_url: `http://byw.tools/wiseview#ra=${p.ra}&dec=${p.dec}&size=176&band=2&speed=500&linear=1&zoom=9`,
+          cadc_url: `https://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/search/?Plane.position.bounds=${p.ra}%20${p.dec};0.1&Observation.collection=NEOSSAT`,
+        };
       }
 
-      return {
-        id, mission: p.mission, name: p.name, ra: p.ra, dec: p.dec, size: N,
-        epochA_date: p.epA, epochB_date: p.epB,
-        status: p.status, guide: p.guide, delta_str: p.delta,
-        coaddA: buildGrid(oxA, oyA, p.fA, 0.012, false),
-        coaddB: buildGrid(oxB, oyB, p.fB, 0.012, !!p.streak),
-        arrays, spectrum, gaia_stars, cadc_optical_count: p.cadc,
-        source: `Simulated Optical Sequence (CSA ${p.mission} cadence model, ${N}x${N} px)`,
-        wiseview_url: `http://byw.tools/wiseview#ra=${p.ra}&dec=${p.dec}&size=176&band=2&speed=500&linear=1&zoom=9`,
-        cadc_url: `https://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/search/?Plane.position.bounds=${p.ra}%20${p.dec};0.1&Observation.collection=NEOSSAT`
-      };
-    }
+      function syncHash() {
+        history.replaceState(
+          null,
+          "",
+          `#target=${$("targetSel").value}&mode=${getMode()}`,
+        );
+      }
 
-    function syncHash() {
-      const id = document.getElementById("targetSel").value;
-      const mode = document.querySelector('input[name="mode"]:checked').value;
-      history.replaceState(null, "", `#target=${id}&mode=${mode}`);
-    }
+      function ensureSpectrum102(spec) {
+        if (
+          !spec ||
+          !Array.isArray(spec.wave_um) ||
+          spec.wave_um.length === 0 ||
+          spec.wave_um.length >= 102
+        )
+          return spec;
+        const pts = spec.wave_um
+          .map((w, i) => ({ w, a: spec.fluxA[i] ?? 0, b: spec.fluxB[i] ?? 0 }))
+          .sort((p, q) => p.w - q.w);
+        const interp = (key, x) => {
+          if (x <= pts[0].w) return pts[0][key];
+          if (x >= pts[pts.length - 1].w) return pts[pts.length - 1][key];
+          const hi = pts.findIndex((p) => p.w >= x),
+            p0 = pts[hi - 1],
+            p1 = pts[hi];
+          const t = p1.w === p0.w ? 0 : (x - p0.w) / (p1.w - p0.w);
+          return +(p0[key] + t * (p1[key] - p0[key])).toFixed(4);
+        };
+        const wave_um = Array.from(
+          { length: 102 },
+          (_, i) => +(0.75 + (4.25 * i) / 101).toFixed(3),
+        );
+        return {
+          wave_um,
+          fluxA: wave_um.map((w) => interp("a", w)),
+          fluxB: wave_um.map((w) => interp("b", w)),
+        };
+      }
 
-    function ensureSpectrum102(spec) {
-      if (!spec || !Array.isArray(spec.wave_um) || spec.wave_um.length === 0 || spec.wave_um.length >= 102) return spec;
-      const pts = spec.wave_um
-        .map((w, i) => ({ w, a: spec.fluxA[i] ?? 0, b: spec.fluxB[i] ?? 0 }))
-        .sort((p, q) => p.w - q.w);
-      const interp = (key, x) => {
-        if (x <= pts[0].w) return pts[0][key];
-        if (x >= pts[pts.length - 1].w) return pts[pts.length - 1][key];
-        let hi = pts.findIndex(p => p.w >= x);
-        const p0 = pts[hi - 1], p1 = pts[hi];
-        const t = p1.w === p0.w ? 0 : (x - p0.w) / (p1.w - p0.w);
-        return +(p0[key] + t * (p1[key] - p0[key])).toFixed(4);
-      };
-      const wave_um = Array.from({ length: 102 }, (_, i) => +(0.75 + (4.25 * i) / 101).toFixed(3));
-      return {
-        wave_um,
-        fluxA: wave_um.map(w => interp("a", w)),
-        fluxB: wave_um.map(w => interp("b", w))
-      };
-    }
+      async function loadTargetData(id) {
+        if (window.BLINKY_DATA && window.BLINKY_DATA[id])
+          return window.BLINKY_DATA[id];
+        if (location.protocol !== "file:") {
+          try {
+            const res = await fetch(`data/${id}.json`);
+            if (res.ok) return await res.json();
+          } catch {}
+        }
+        return await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = `data/${id}.js`;
+          s.onload = () =>
+            window.BLINKY_DATA && window.BLINKY_DATA[id]
+              ? resolve(window.BLINKY_DATA[id])
+              : reject(new Error("Missing BLINKY_DATA entry"));
+          s.onerror = () => {
+            s.remove();
+            reject(new Error("No JS data"));
+          };
+          document.head.appendChild(s);
+        });
+      }
 
-    async function loadTargetData(id) {
-      if (window.BLINKY_DATA && window.BLINKY_DATA[id]) return window.BLINKY_DATA[id];
-      if (window.location.protocol !== "file:") {
+      async function loadTarget(id) {
+        $("hudName").textContent = PRESETS[id].name;
+        $("dataSourceNote").textContent = "Loading…";
+        document
+          .querySelectorAll(".card")
+          .forEach((c) => c.classList.toggle("active", c.dataset.id === id));
         try {
-          const res = await fetch(`data/${id}.json`);
-          if (res.ok) return await res.json();
-        } catch { }
-      }
-      return await new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = `data/${id}.js`;
-        s.onload = () => {
-          if (window.BLINKY_DATA && window.BLINKY_DATA[id]) resolve(window.BLINKY_DATA[id]);
-          else reject(new Error("Missing BLINKY_DATA entry"));
-        };
-        s.onerror = () => {
-          s.remove();
-          reject(new Error("No JS data"));
-        };
-        document.head.appendChild(s);
-      });
-    }
-
-    async function loadTarget(id) {
-      try {
-        const json = await loadTargetData(id);
-        if (document.getElementById("targetSel").value !== id) return;
-        const p = PRESETS[id];
-        currentData = {
-          ...json,
-          spectrum: ensureSpectrum102(json.spectrum),
-          mission: p ? p.mission : json.mission,
-          name: p ? p.name : json.name,
-          guide: p ? p.guide : json.status,
-          delta_str: `${json.delta_str} (Flags: ${json.flag_str})`,
-          source: `Live FITS Cutout (NASA ${json.mission}, ${json.size}x${json.size} px); IRSA aperture photometry + LVF template interpolation`
-        };
-      } catch {
-        if (document.getElementById("targetSel").value !== id) return;
-        currentData = makeFallbackData(id);
-      }
-
-      const isIR = !!currentData.spectrum && currentData.spectrum.wave_um && currentData.spectrum.wave_um.length > 0;
-      document.getElementById("bandWrap").classList.toggle("hidden", !currentData.arrays);
-      document.getElementById("specSection").classList.toggle("hidden", !isIR);
-      if (!currentData.arrays) document.getElementById("bandSel").value = "coadd";
-
-      document.getElementById("infoId").textContent = `${currentData.name} (${currentData.mission})`;
-      document.getElementById("infoStatus").textContent = currentData.status;
-      document.getElementById("infoGuide").textContent = currentData.guide || "—";
-      document.getElementById("infoDelta").textContent = currentData.delta_str;
-      document.getElementById("infoLinks").innerHTML =
-        `<a href="${currentData.wiseview_url}" target="_blank" rel="noopener">WiseView</a> / ` +
-        `<a href="${currentData.cadc_url}" target="_blank" rel="noopener">CADC (${currentData.cadc_optical_count} frames)</a>`;
-      document.getElementById("dataSourceNote").textContent = currentData.source;
-
-      syncHash();
-      if (isIR) drawSpectrum();
-      renderSky();
-    }
-
-    function renderSky() {
-      if (!currentData) return;
-      const canvas = document.getElementById("skyCanvas");
-      const ctx = canvas.getContext("2d");
-      const N = currentData.size;
-      const band = currentData.arrays ? document.getElementById("bandSel").value : "coadd";
-      const mode = document.querySelector('input[name="mode"]:checked').value;
-
-      const gridA = (band === "coadd" || !currentData.arrays) ? currentData.coaddA : currentData.arrays[band].A;
-      const gridB = (band === "coadd" || !currentData.arrays) ? currentData.coaddB : currentData.arrays[band].B;
-
-      if (offCanvas.width !== N || offCanvas.height !== N) {
-        offCanvas.width = N;
-        offCanvas.height = N;
-      }
-      const img = offCtx.createImageData(N, N);
-
-      for (let y = 0; y < N; y++) {
-        for (let x = 0; x < N; x++) {
-          const idx = (y * N + x) * 4;
-          const a = gridA[y][x], b = gridB[y][x];
-          if (mode === "diff") {
-            const d = Math.max(-1, Math.min(1, (b - a) * 1.4));
-            img.data[idx] = d > 0 ? Math.round(d * 255) : 0;
-            img.data[idx + 1] = Math.round(Math.abs(d) * 60);
-            img.data[idx + 2] = d < 0 ? Math.round(-d * 255) : 0;
-          } else {
-            const val = (mode === "A" || (mode === "blink" && blinkFrame === 0)) ? a : b;
-            const px = Math.min(255, Math.round((Math.asinh(val * 4) / Math.asinh(6)) * 255));
-            img.data[idx] = img.data[idx + 1] = img.data[idx + 2] = px;
-          }
-          img.data[idx + 3] = 255;
+          const json = await loadTargetData(id);
+          if ($("targetSel").value !== id) return;
+          const p = PRESETS[id];
+          currentData = {
+            ...json,
+            spectrum: ensureSpectrum102(json.spectrum),
+            mission: p ? p.mission : json.mission,
+            name: p ? p.name : json.name,
+            guide: p ? p.guide : json.status,
+            delta_str: `${json.delta_str} (Flags: ${json.flag_str})`,
+            source: `Live FITS cutout (${json.mission}, ${json.size}x${json.size} px); IRSA aperture photometry + LVF template interpolation`,
+          };
+        } catch {
+          if ($("targetSel").value !== id) return;
+          currentData = makeFallbackData(id);
         }
-      }
-      offCtx.putImageData(img, 0, 0);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(offCanvas, 0, 0, canvas.width, canvas.height);
+        const isIR =
+          !!currentData.spectrum &&
+          currentData.spectrum.wave_um &&
+          currentData.spectrum.wave_um.length > 0;
+        $("bandWrap").classList.toggle("hidden", !currentData.arrays);
+        $("specBtn").classList.toggle("hidden", !isIR);
+        if (!isIR) $("specSection").classList.add("off");
+        if (!currentData.arrays) $("bandSel").value = "coadd";
 
-      const scale = canvas.width / N;
-      const cx = (N / 2) * scale, cy = (N / 2) * scale;
-      ctx.strokeStyle = "rgba(255, 80, 80, 0.85)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(cx - 10, cy - 10, 20, 20);
-
-      if (document.getElementById("gaiaToggle").checked) {
-        ctx.strokeStyle = "#39ff14";
-        ctx.lineWidth = 1.2;
-        for (const s of currentData.gaia_stars) {
-          const sx = s.x * scale, sy = s.y * scale;
-          ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.stroke();
-          if (Math.hypot(s.pm_dx, s.pm_dy) > 0.3) {
-            ctx.beginPath();
-            ctx.moveTo(sx, sy);
-            ctx.lineTo(sx + s.pm_dx * scale, sy + s.pm_dy * scale);
-            ctx.stroke();
-          }
-        }
-      }
-
-      ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.fillRect(6, 6, 175, 18);
-      ctx.fillStyle = "#fff";
-      ctx.font = "11px monospace";
-      const epLabel = mode === "diff"
-        ? `DIFF (${currentData.epochB_date} - ${currentData.epochA_date})`
-        : (mode === "A" || (mode === "blink" && blinkFrame === 0))
-          ? `EPOCH A (${currentData.epochA_date})`
-          : `EPOCH B (${currentData.epochB_date})`;
-      ctx.fillText(epLabel, 10, 18);
-    }
-
-    function drawSpectrum() {
-      const c = document.getElementById("specCanvas");
-      const ctx = c.getContext("2d");
-      const { wave_um, fluxA, fluxB } = currentData.spectrum;
-      ctx.clearRect(0, 0, c.width, c.height);
-      if (!wave_um.length) return;
-
-      const pad = { l: 36, r: 12, t: 12, b: 22 };
-      const w = c.width - pad.l - pad.r, h = c.height - pad.t - pad.b;
-      const maxF = Math.max(...fluxA, ...fluxB, 0.1) * 1.1;
-
-      ctx.strokeStyle = "dimgray";
-      ctx.strokeRect(pad.l, pad.t, w, h);
-      ctx.fillStyle = "darkgray";
-      ctx.font = "11px monospace";
-      ctx.fillText("0.75 um", pad.l, c.height - 6);
-      ctx.fillText("2.8 um", pad.l + w * 0.45, c.height - 6);
-      ctx.fillText("5.00 um", pad.l + w - 44, c.height - 6);
-
-      ctx.save();
-      ctx.translate(12, pad.t + h * 0.72);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText("Norm. Flux", 0, 0);
-      ctx.restore();
-
-      const plotLine = (arr, color, dashed) => {
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        if (dashed) ctx.setLineDash([5, 4]);
-        ctx.beginPath();
-        arr.forEach((val, i) => {
-          const x = pad.l + ((wave_um[i] - 0.75) / 4.25) * w;
-          const y = pad.t + h - (val / maxF) * h;
-          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-        ctx.restore();
-      };
-
-      plotLine(fluxB, "red", false);
-      plotLine(fluxA, "deepskyblue", true);
-    }
-
-    document.getElementById("targetSel").addEventListener("change", e => loadTarget(e.target.value));
-    document.getElementById("bandSel").addEventListener("change", renderSky);
-    document.getElementById("gaiaToggle").addEventListener("change", renderSky);
-    document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener("change", () => { syncHash(); renderSky(); }));
-
-    setInterval(() => {
-      if (document.querySelector('input[name="mode"]:checked').value === "blink") {
-        blinkFrame = 1 - blinkFrame;
+        $("hudSub").textContent =
+          currentData.mission === "SPHEREx"
+            ? `NASA SPHEREx · near-infrared 0.75–5.0 µm · ${currentData.epochA_date} to ${currentData.epochB_date}`
+            : `CSA NEOSSat · optical · ${currentData.epochA_date} to ${currentData.epochB_date}`;
+        $("infoId").textContent =
+          `${currentData.name} (${currentData.mission})`;
+        $("infoStatus").textContent = currentData.status;
+        $("infoGuide").textContent = currentData.guide || "—";
+        $("infoDelta").textContent = currentData.delta_str;
+        $("infoLinks").innerHTML =
+          `<a href="${currentData.wiseview_url}" target="_blank" rel="noopener">WiseView</a> · <a href="${currentData.cadc_url}" target="_blank" rel="noopener">CADC (${currentData.cadc_optical_count} frames)</a>`;
+        $("dataSourceNote").textContent = currentData.source;
+        syncHash();
+        if (isIR) drawSpectrum();
+        flyIn();
         renderSky();
       }
-    }, 500);
 
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    const initTarget = PRESETS[params.get("target")] ? params.get("target") : "wise0855";
-    const initMode = ["A", "B", "blink", "diff"].includes(params.get("mode")) ? params.get("mode") : "blink";
-    document.getElementById("targetSel").value = initTarget;
-    document.querySelector(`input[name="mode"][value="${initMode}"]`).checked = true;
-    loadTarget(initTarget);
-  </script>
-</body>
+      /* ---------- rendering ---------- */
+      const stretchCache = new WeakMap();
+      function getStretch(gA, gB, N) {
+        let st = stretchCache.get(gA);
+        if (st) return st;
+        const all = new Float32Array(N * N * 2),
+          diff = new Float32Array(N * N);
+        for (let y = 0; y < N; y++)
+          for (let x = 0; x < N; x++) {
+            const i = y * N + x;
+            all[i] = gA[y][x];
+            all[N * N + i] = gB[y][x];
+            diff[i] = Math.abs(gB[y][x] - gA[y][x]);
+          }
+        all.sort();
+        diff.sort();
+        const lo = all[Math.floor(all.length * 0.05)];
+        const hi = Math.max(all[Math.floor(all.length * 0.998)], lo + 1e-4);
+        const amp = Math.max(diff[Math.floor(diff.length * 0.997)], 1e-4);
+        st = { lo, hi, amp };
+        stretchCache.set(gA, st);
+        return st;
+      }
 
+      function renderSky() {
+        if (!currentData) return;
+        const canvas = $("skyCanvas"),
+          ctx = canvas.getContext("2d"),
+          N = currentData.size;
+        const band = currentData.arrays ? $("bandSel").value : "coadd";
+        const mode = getMode();
+        const useCoadd = band === "coadd" || !currentData.arrays;
+        const gridA = useCoadd
+          ? currentData.coaddA
+          : currentData.arrays[band].A;
+        const gridB = useCoadd
+          ? currentData.coaddB
+          : currentData.arrays[band].B;
+        if (offCanvas.width !== N || offCanvas.height !== N) {
+          offCanvas.width = N;
+          offCanvas.height = N;
+        }
+        const img = offCtx.createImageData(N, N);
+        const split = $("wipeSlider").value / 100;
+        const showA = mode === "A" || (mode === "blink" && blinkFrame === 0);
+        const { lo, hi, amp } = getStretch(gridA, gridB, N);
+        const norm = Math.asinh(20);
+        for (let y = 0; y < N; y++)
+          for (let x = 0; x < N; x++) {
+            const idx = (y * N + x) * 4,
+              a = gridA[y][x],
+              b = gridB[y][x];
+            if (mode === "diff") {
+              const d = Math.max(-1, Math.min(1, (b - a) / amp));
+              const m = Math.pow(Math.abs(d), 0.7);
+              img.data[idx] = d > 0 ? Math.round(m * 255) : Math.round(m * 40);
+              img.data[idx + 1] =
+                d > 0 ? Math.round(m * 110) : Math.round(m * 150);
+              img.data[idx + 2] = d < 0 ? Math.round(m * 255) : 0;
+            } else {
+              const v =
+                mode === "wipe"
+                  ? (x + 0.5) / N < split
+                    ? a
+                    : b
+                  : showA
+                    ? a
+                    : b;
+              const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+              const px = Math.round((Math.asinh(t * 20) / norm) * 255);
+              img.data[idx] = img.data[idx + 1] = img.data[idx + 2] = px;
+            }
+            img.data[idx + 3] = 255;
+          }
+        offCtx.putImageData(img, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(offCanvas, 0, 0, canvas.width, canvas.height);
+
+        const scale = canvas.width / N,
+          u = canvas.width / 256,
+          c = (N / 2) * scale;
+        ctx.strokeStyle = "rgba(255,120,80,.9)";
+        ctx.lineWidth = 1.5 * u;
+        ctx.strokeRect(c - 10 * u, c - 10 * u, 20 * u, 20 * u);
+
+        if (mode === "wipe") {
+          const sx = split * canvas.width;
+          ctx.strokeStyle = "rgba(255,255,255,.9)";
+          ctx.lineWidth = 1.5 * u;
+          ctx.beginPath();
+          ctx.moveTo(sx, 0);
+          ctx.lineTo(sx, canvas.height);
+          ctx.stroke();
+        }
+        if ($("gaiaToggle").checked) {
+          ctx.strokeStyle = "#39ff14";
+          ctx.lineWidth = 1.6 * u;
+          for (const s of currentData.gaia_stars) {
+            const sx = s.x * scale,
+              sy = s.y * scale;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 5 * u, 0, Math.PI * 2);
+            ctx.stroke();
+            if (Math.hypot(s.pm_dx, s.pm_dy) > 0.3) {
+              ctx.beginPath();
+              ctx.moveTo(sx, sy);
+              ctx.lineTo(sx + s.pm_dx * scale, sy + s.pm_dy * scale);
+              ctx.stroke();
+            }
+          }
+        }
+        const [label, color] =
+          mode === "diff"
+            ? [
+                `Difference: ${currentData.epochB_date} minus ${currentData.epochA_date}`,
+                "#ff8a4c",
+              ]
+            : mode === "wipe"
+              ? [
+                  `Left: epoch A ${currentData.epochA_date} · Right: epoch B ${currentData.epochB_date}`,
+                  "#f2f2f2",
+                ]
+              : showA
+                ? [`Epoch A · ${currentData.epochA_date}`, "#4fb6ff"]
+                : [`Epoch B · ${currentData.epochB_date}`, "#ff5a5a"];
+        $("epochTag").innerHTML = `<i style="background:${color}"></i>${label}`;
+      }
+
+      function drawSpectrum() {
+        const c = $("specCanvas"),
+          ctx = c.getContext("2d");
+        const { wave_um, fluxA, fluxB } = currentData.spectrum;
+        ctx.clearRect(0, 0, c.width, c.height);
+        if (!wave_um.length) return;
+        const pad = { l: 36, r: 12, t: 12, b: 22 },
+          w = c.width - pad.l - pad.r,
+          h = c.height - pad.t - pad.b;
+        const maxF = Math.max(...fluxA, ...fluxB, 0.1) * 1.1;
+        ctx.strokeStyle = "rgba(255,255,255,.3)";
+        ctx.strokeRect(pad.l, pad.t, w, h);
+        ctx.fillStyle = "#9a9a9a";
+        ctx.font = "11px monospace";
+        ctx.fillText("0.75 um", pad.l, c.height - 6);
+        ctx.fillText("2.8 um", pad.l + w * 0.45, c.height - 6);
+        ctx.fillText("5.00 um", pad.l + w - 44, c.height - 6);
+        ctx.save();
+        ctx.translate(12, pad.t + h * 0.72);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText("Norm. flux", 0, 0);
+        ctx.restore();
+        const plotLine = (arr, color, dashed) => {
+          ctx.save();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          if (dashed) ctx.setLineDash([5, 4]);
+          ctx.beginPath();
+          arr.forEach((val, i) => {
+            const x = pad.l + ((wave_um[i] - 0.75) / 4.25) * w,
+              y = pad.t + h - (val / maxF) * h;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+          ctx.restore();
+        };
+        plotLine(fluxB, "#ff5a5a", false);
+        plotLine(fluxA, "#4fb6ff", true);
+      }
+
+    
+      const V = { x: 0, y: 0, k: 1 };
+      const pan = $("pan"),
+        stage = $("stage");
+      function applyView() {
+        pan.style.transform = `translate(${V.x}px,${V.y}px) scale(${V.k})`;
+        $("coords").textContent = `Zoom ${V.k.toFixed(1)}×`;
+      }
+      function resetView(animate) {
+        pan.style.transition = animate
+          ? "transform .5s cubic-bezier(.2,.8,.2,1)"
+          : "none";
+        V.x = V.y = 0;
+        V.k = 1;
+        applyView();
+      }
+      function flyIn() {
+        pan.style.transition = "none";
+        V.x = V.y = 0;
+        V.k = 0.55;
+        applyView();
+        pan.getBoundingClientRect();
+        requestAnimationFrame(() => resetView(true));
+      }
+      stage.addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          pan.style.transition = "none";
+          const nk = Math.min(
+            14,
+            Math.max(0.5, V.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)),
+          );
+          const cs = getComputedStyle(stage),
+            cx = e.clientX - innerWidth / 2,
+            cy =
+              e.clientY -
+              (innerHeight / 2 +
+                (parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / 2);
+          V.x = cx - (cx - V.x) * (nk / V.k);
+          V.y = cy - (cy - V.y) * (nk / V.k);
+          V.k = nk;
+          applyView();
+        },
+        { passive: false },
+      );
+      let drag = null;
+      stage.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        pan.style.transition = "none";
+        drag = { x: e.clientX - V.x, y: e.clientY - V.y };
+        stage.classList.add("drag");
+      });
+      addEventListener("pointermove", (e) => {
+        if (!drag) return;
+        V.x = e.clientX - drag.x;
+        V.y = e.clientY - drag.y;
+        applyView();
+      });
+      addEventListener("pointerup", () => {
+        drag = null;
+        stage.classList.remove("drag");
+      });
+      stage.addEventListener("dblclick", () => resetView(true));
+
+      /* ---------- starfield backdrop ---------- */
+      (function stars() {
+        const c = $("stars"),
+          x = c.getContext("2d");
+        const draw = () => {
+          c.width = innerWidth;
+          c.height = innerHeight;
+          x.fillStyle = "#000";
+          x.fillRect(0, 0, c.width, c.height);
+          let s = 7;
+          const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+          for (let i = 0; i < 180; i++) {
+            x.fillStyle = `rgba(255,255,255,${0.08 + r() * 0.3})`;
+            const sz = r() < 0.9 ? 1 : 2;
+            x.fillRect(r() * c.width, r() * c.height, sz, sz);
+          }
+        };
+        draw();
+        addEventListener("resize", draw);
+      })();
+
+      /*UI */
+      const rail = $("rail");
+      for (const [id, p] of Object.entries(PRESETS)) {
+        const b = document.createElement("button");
+        b.className = "card" + (p.mission === "NEOSSat" ? " neo" : "");
+        b.dataset.id = id;
+        b.innerHTML = `<i></i>${p.name}`;
+        b.onclick = () => {
+          stopTour();
+          selectTarget(id);
+        };
+        rail.appendChild(b);
+      }
+      function selectTarget(id) {
+        $("targetSel").value = id;
+        loadTarget(id);
+      }
+      function updateModeUI() {
+        const m = getMode();
+        $("wipeWrap").classList.toggle("hidden", m !== "wipe");
+        $("speedWrap").classList.toggle("hidden", m !== "blink");
+      }
+      $("targetSel").addEventListener("change", (e) =>
+        loadTarget(e.target.value),
+      );
+      $("bandSel").addEventListener("change", renderSky);
+      $("gaiaToggle").addEventListener("change", renderSky);
+      $("wipeSlider").addEventListener("input", renderSky);
+      document.querySelectorAll('input[name="mode"]').forEach((r) =>
+        r.addEventListener("change", () => {
+          updateModeUI();
+          syncHash();
+          renderSky();
+        }),
+      );
+      $("specBtn").onclick = () => {
+        $("specSection").classList.toggle("off");
+        $("specBtn").classList.toggle("on");
+      };
+      $("infoBtn").onclick = () => {
+        $("info").classList.toggle("off");
+        $("infoBtn").classList.toggle("on");
+      };
+      $("resetBtn").onclick = () => resetView(true);
+
+      /* blink loop: right on the slider = faster */
+      let speed = 650;
+      $("speed").addEventListener(
+        "input",
+        (e) => (speed = 1650 - +e.target.value),
+      );
+      (function tick() {
+        if (getMode() === "blink") {
+          blinkFrame = 1 - blinkFrame;
+          renderSky();
+        }
+        setTimeout(tick, speed);
+      })();
+
+      /*tour*/
+      let tourTimer = null,
+        tourIdx = 0;
+      const TOUR = [
+        [
+          "wise0855",
+          "blink",
+          true,
+          "WISE 0855: a 250 K brown dwarf with no optical counterpart. The green Gaia circles skip the center box.",
+        ],
+        [
+          "barnards",
+          "diff",
+          true,
+          "Barnard's Star: brightness is flat, but the Diff view shows it sliding across the field.",
+        ],
+        [
+          "rw_aurigae",
+          "blink",
+          false,
+          "RW Aurigae: the star dims by almost half between epochs.",
+        ],
+        [
+          "r_draconis",
+          "diff",
+          false,
+          "R Draconis: a Mira variable brightening by about 64%.",
+        ],
+        [
+          "neossat_mover",
+          "diff",
+          true,
+          "NEOSSat: a Solar System body jumps across fixed reference stars.",
+        ],
+        [
+          "neossat_field",
+          "diff",
+          false,
+          "NEOSSat: an orange streak from a low-Earth-orbit satellite crosses the frame.",
+        ],
+      ];
+      function tourStep() {
+        const [id, mode, gaia, text] = TOUR[tourIdx % TOUR.length];
+        tourIdx++;
+        selectTarget(id);
+        setMode(mode);
+        $("gaiaToggle").checked = gaia;
+        $("caption").textContent = text;
+        $("caption").classList.remove("hidden");
+        renderSky();
+      }
+      function stopTour() {
+        clearInterval(tourTimer);
+        tourTimer = null;
+        $("tourBtn").classList.remove("on");
+        $("tourBtn").textContent = "Tour";
+        $("caption").classList.add("hidden");
+      }
+      $("tourBtn").onclick = () => {
+        if (tourTimer) return stopTour();
+        tourIdx = 0;
+        $("tourBtn").classList.add("on");
+        $("tourBtn").textContent = "Stop tour";
+        tourStep();
+        tourTimer = setInterval(tourStep, 9000);
+      };
+
+      function setMode(m) {
+        document.querySelector(`input[name="mode"][value="${m}"]`).checked =
+          true;
+        updateModeUI();
+        syncHash();
+        renderSky();
+      }
+      addEventListener("keydown", (e) => {
+        if (/select|textarea/i.test(e.target.tagName)) return;
+        const k = e.key.toLowerCase();
+        if (k === "a") setMode("A");
+        else if (k === "b") setMode("B");
+        else if (k === "d") setMode("diff");
+        else if (k === "w") setMode("wipe");
+        else if (k === " ") {
+          e.preventDefault();
+          setMode("blink");
+        } else if (k === "g") {
+          $("gaiaToggle").checked = !$("gaiaToggle").checked;
+          renderSky();
+        } else if (k === "s") $("specBtn").click();
+        else if (k === "i") $("infoBtn").click();
+        else if (k === "r") resetView(true);
+        else if (k === "arrowright" || k === "arrowleft") {
+          stopTour();
+          const ids = Object.keys(PRESETS),
+            i = ids.indexOf($("targetSel").value);
+          selectTarget(
+            ids[(i + (k === "arrowright" ? 1 : ids.length - 1)) % ids.length],
+          );
+        }
+      });
+
+      const params = new URLSearchParams(location.hash.slice(1));
+      const initTarget = PRESETS[params.get("target")]
+        ? params.get("target")
+        : "wise0855";
+      const initMode = ["A", "B", "blink", "diff", "wipe"].includes(
+        params.get("mode"),
+      )
+        ? params.get("mode")
+        : "blink";
+      $("targetSel").value = initTarget;
+      document.querySelector(
+        `input[name="mode"][value="${initMode}"]`,
+      ).checked = true;
+      updateModeUI();
+      loadTarget(initTarget);
+    </script>
+  </body>
 </html>
